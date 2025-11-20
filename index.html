@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cowboy's Pizza Operations</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts (Western Style) -->
+    <link href="https://fonts.googleapis.com/css2?family=Rye&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Roboto', sans-serif; }
+        h1, h2, h3, .font-serif { font-family: 'Rye', serif; }
+        
+        /* Western Animations */
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-slide-up { animation: slideUp 0.4s ease-out forwards; }
+        
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+    </style>
+
+    <!-- Import Map for React & Lucide -->
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.263.1"
+      }
+    }
+    </script>
+
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-stone-100 text-stone-900 h-screen overflow-hidden">
+
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { 
+            Thermometer, ClipboardCheck, BookOpen, Box, ChefHat, 
+            AlertTriangle, CheckCircle, Clock, Search, Save, 
+            Plus, Sparkles, Loader, X, Flame, Utensils, Mail, 
+            FileText, Copy, Settings, LogOut
+        } from 'lucide-react';
+
+        // --- API & STORAGE UTILS ---
+
+        // LocalStorage Helper
+        const useStickyState = (defaultValue, key) => {
+            const [value, setValue] = useState(() => {
+                const stickyValue = window.localStorage.getItem(key);
+                return stickyValue !== null ? JSON.parse(stickyValue) : defaultValue;
+            });
+            useEffect(() => {
+                window.localStorage.setItem(key, JSON.stringify(value));
+            }, [key, value]);
+            return [value, setValue];
+        };
+
+        const callGemini = async (apiKey, prompt, systemInstruction = "") => {
+            if (!apiKey) throw new Error("API Key missing");
+            try {
+                const response = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: prompt }] }],
+                            systemInstruction: { parts: [{ text: systemInstruction }] },
+                        }),
+                    }
+                );
+                if (!response.ok) throw new Error(`API Error: ${response.status}`);
+                const data = await response.json();
+                return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response generated.";
+            } catch (error) {
+                console.error("Gemini API Failed:", error);
+                throw error;
+            }
+        };
+
+        // --- CONSTANTS ---
+
+        const STAFF_MEMBERS = [
+            { id: '1', name: 'Head Sheriff', role: 'Head Chef', initials: 'HS' },
+            { id: '2', name: 'Deputy Dough', role: 'Sous Chef', initials: 'DD' },
+            { id: '3', name: 'Ranch Hand', role: 'KP', initials: 'RH' },
+            { id: '4', name: 'Line Cowboy', role: 'Line Cook', initials: 'LC' },
+        ];
+
+        const INITIAL_RECIPES = [
+            { id: 'r1', name: 'Cowboy Classic (Rodeo)', yield: '1 Pizza (12")', allergens: ['Wheat (Gluten)', 'Milk'], ingredients: [{ item: 'Dough Ball', qty: '1 (260g)' }, { item: 'San Marzano Tomatoes', qty: '1 Ladle' }, { item: 'Mozzarella', qty: '80g' }, { item: 'Parmesan', qty: 'Sprinkle' }, { item: 'Fresh Basil', qty: '4 leaves' }], method: ['Stretch dough to 12 inches.', 'Spread tomato sauce evenly.', 'Add mozzarella and parmesan.', 'Bake until crust is spotted.', 'Finish with fresh basil and olive oil.'] },
+            { id: 'r2', name: 'Naughty Cowboy', yield: '1 Pizza (12")', allergens: ['Wheat (Gluten)', 'Milk'], ingredients: [{ item: 'Dough Ball', qty: '1' }, { item: 'San Marzano Tomatoes', qty: '1 Ladle' }, { item: 'Mozzarella', qty: '80g' }, { item: 'Pepperoni', qty: '12 slices' }, { item: 'Hot Honey', qty: 'Drizzle (Post-bake)' }], method: ['Standard base prep with tomato and mozz.', 'Arrange pepperoni evenly.', 'Bake.', 'Drizzle generously with Hot Honey before serving.'] },
+            { id: 'r3', name: 'Classy Cowgirl', yield: '1 Pizza (12")', allergens: ['Wheat (Gluten)', 'Milk', 'Sulphites'], ingredients: [{ item: 'Dough Ball', qty: '1' }, { item: 'San Marzano Tomatoes', qty: '1 Ladle' }, { item: 'Fior di Latte', qty: '80g' }, { item: 'Pepperoni', qty: '8 slices' }, { item: 'Nduja', qty: '4 chunks' }, { item: 'Burrata', qty: '1 ball' }, { item: 'Hot Honey', qty: 'Drizzle' }], method: ['Prep base with tomato, fior di latte, pepperoni, nduja.', 'Bake.', 'Top with fresh burrata in center.', 'Garnish with fresh chilli and hot honey.'] }
+        ];
+
+        const CLEANING_TASKS = [
+            { id: 'c1', area: 'Pizza Station', task: 'Wipe down marble top', freq: 'Every 30m' },
+            { id: 'c2', area: 'Pizza Station', task: 'Refill flour dredge', freq: 'Every 2h' },
+            { id: 'c3', area: 'Prep Kitchen', task: 'Clean Dough Mixer', freq: 'End of Shift' },
+            { id: 'c4', area: 'Walk-in', task: 'Organize Dough Trays (FIFO)', freq: 'Start of Shift' },
+            { id: 'c5', area: 'Oven', task: 'Brush oven floor', freq: 'Every 1h' },
+        ];
+
+        const STOCK_ITEMS = [
+            { id: 's1', name: 'Fior di Latte / Mozz', unit: 'kg', par: 15 },
+            { id: 's2', name: 'San Marzano Tins', unit: 'Case (6x)', par: 10 },
+            { id: 's3', name: 'Pepperoni', unit: 'kg', par: 5 },
+            { id: 's4', name: 'Nduja', unit: 'kg', par: 3 },
+            { id: 's5', name: 'Hot Honey', unit: 'Bottle', par: 6 },
+            { id: 's6', name: 'Veganarella', unit: 'kg', par: 2 },
+            { id: 's7', name: '00 Flour', unit: 'Sack 25kg', par: 5 },
+            { id: 's8', name: 'Truffle Oil', unit: 'Bottle', par: 2 },
+            { id: 's9', name: 'Pizza Boxes (12")', unit: 'Pack 100', par: 8 },
+        ];
+
+        // --- COMPONENTS ---
+
+        const Notification = ({ message, type, onClose }) => {
+            if (!message) return null;
+            const bgClass = type === 'success' ? 'bg-green-100 border-green-500 text-green-800' : 'bg-red-100 border-red-500 text-red-800';
+            return (
+                <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg border-l-4 ${bgClass} flex items-center gap-3 animate-bounce-in`}>
+                    {type === 'success' ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
+                    <span className="font-medium">{message}</span>
+                    <button onClick={onClose} className="ml-4 text-sm opacity-50 hover:opacity-100">✕</button>
+                </div>
+            );
+        };
+
+        const APIKeyModal = ({ isOpen, onSave }) => {
+            const [input, setInput] = useState('');
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl p-8 max-w-md w-full shadow-2xl border-4 border-stone-200">
+                        <div className="flex justify-center mb-4 text-orange-600"><Settings size={48} /></div>
+                        <h2 className="text-2xl font-bold text-center text-stone-900 font-serif mb-2">System Setup</h2>
+                        <p className="text-stone-600 text-center mb-6 text-sm">To enable AI features (Recipes, Reports, Risk Analysis), please enter your Google Gemini API Key.</p>
+                        <input 
+                            type="password" 
+                            placeholder="Paste API Key here..." 
+                            className="w-full p-3 border border-stone-300 rounded-lg mb-4 focus:ring-2 focus:ring-orange-500"
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                        />
+                        <button 
+                            onClick={() => onSave(input)}
+                            className="w-full bg-stone-900 text-white font-bold py-3 rounded-lg hover:bg-orange-600 transition-colors"
+                        >
+                            Save & Start System
+                        </button>
+                        <p className="text-xs text-center text-stone-400 mt-4">Key is saved locally on this device only.</p>
+                    </div>
+                </div>
+            );
+        };
+
+        const Sidebar = ({ activeTab, setActiveTab, currentUser, setCurrentUser, onReset }) => {
+            const menuItems = [
+                { id: 'dashboard', icon: Clock, label: 'Ranch Overview' },
+                { id: 'haccp', icon: Thermometer, label: 'HACCP Logs' },
+                { id: 'cleaning', icon: ClipboardCheck, label: 'Cleaning' },
+                { id: 'stock', icon: Box, label: 'Stock & Prep' },
+                { id: 'recipes', icon: BookOpen, label: 'Cowboy Recipes' },
+            ];
+
+            return (
+                <div className="w-24 md:w-64 bg-stone-900 text-white flex flex-col h-full fixed left-0 top-0 z-10">
+                    <div className="p-4 flex flex-col items-center md:items-start border-b border-stone-700">
+                        <div className="flex items-center gap-3 text-orange-500 font-bold text-xl mb-1">
+                            <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg bg-stone-100 flex items-center justify-center overflow-hidden border border-stone-700">
+                                <img src="logo.png" alt="Logo" className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
+                                <Flame size={24} className="text-orange-600 hidden" fill="currentColor" />
+                            </div>
+                            <span className="hidden md:block font-serif tracking-wide text-xl">COWBOY'S</span>
+                        </div>
+                        <p className="hidden md:block text-xs text-stone-400 tracking-widest uppercase mt-1 ml-1">Pizza Operations</p>
+                    </div>
+
+                    <div className="p-4 border-b border-stone-700 bg-stone-800">
+                        <p className="text-xs text-stone-400 mb-2 hidden md:block uppercase tracking-wider">Current Sheriff:</p>
+                        <select 
+                            className="w-full bg-stone-700 text-white p-2 rounded border border-stone-600 focus:outline-none focus:border-orange-500"
+                            value={currentUser.id}
+                            onChange={(e) => setCurrentUser(STAFF_MEMBERS.find(s => s.id === e.target.value))}
+                        >
+                            {STAFF_MEMBERS.map(s => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <nav className="flex-1 py-4 overflow-y-auto">
+                        {menuItems.map((item) => (
+                            <button
+                                key={item.id}
+                                onClick={() => setActiveTab(item.id)}
+                                className={`w-full flex items-center gap-3 p-4 transition-colors ${activeTab === item.id ? 'bg-orange-700 text-white border-l-4 border-orange-500' : 'text-stone-400 hover:bg-stone-800 hover:text-white'}`}
+                            >
+                                <item.icon size={24} />
+                                <span className="hidden md:block font-medium">{item.label}</span>
+                            </button>
+                        ))}
+                    </nav>
+                    
+                    <div className="p-4 border-t border-stone-700">
+                        <button onClick={onReset} className="text-xs text-stone-500 hover:text-red-400 flex items-center gap-1 w-full justify-center md:justify-start">
+                            <LogOut size={12}/> <span className="hidden md:inline">Reset App Data</span>
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- SECTIONS ---
+
+        const HACCPLog = ({ currentUser, showNotify, apiKey, logs, setLogs }) => {
+            const [tempInput, setTempInput] = useState('');
+            const [unit, setUnit] = useState('Walk-in Fridge');
+            const [loading, setLoading] = useState(false);
+            const [analysis, setAnalysis] = useState(null);
+            
+            const units = ['Walk-in Fridge', 'Under Stretch Counter Fridge', 'Under Heat Lamp Counter Fridge', 'Freezer', 'Hot Hold'];
+
+            const handleAddLog = (e) => {
+                e.preventDefault();
+                if (!tempInput) return;
+                const temp = parseFloat(tempInput);
+                let status = 'OK';
+                if (unit.includes('Fridge')) {
+                    if (temp > 5) status = 'HIGH'; if (temp > 8) status = 'CRITICAL'; 
+                } else if (unit.includes('Freezer')) {
+                    if (temp > -18) status = 'HIGH';
+                } else if (unit.includes('Hot')) {
+                    if (temp < 63) status = 'LOW'; 
+                }
+                const newLog = { id: Date.now(), time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), unit, temp, user: currentUser.initials, status };
+                setLogs([newLog, ...logs]);
+                setTempInput('');
+                showNotify('Temperature logged', 'success');
+            };
+
+            const analyzeLogs = async () => {
+                if (logs.length === 0) return showNotify('No logs to analyze', 'error');
+                setLoading(true);
+                try {
+                    const logText = logs.map(l => `${l.time} - ${l.unit}: ${l.temp}°C (${l.status})`).join('\n');
+                    const prompt = `Strict Kitchen Inspector here. Analyze logs. If all good, say "All Compliant". If issues, list them sternly. Provide 1 action item.\n\nLOGS:\n${logText}`;
+                    const result = await callGemini(apiKey, prompt);
+                    setAnalysis(result);
+                } catch (e) { showNotify('Analysis failed', 'error'); } finally { setLoading(false); }
+            };
+
+            return (
+                <div className="max-w-4xl mx-auto animate-fade-in">
+                    <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-6 mb-6">
+                        <h2 className="text-xl font-bold text-stone-800 mb-4 flex items-center gap-2 font-serif"><Thermometer className="text-orange-600" /> Log Temperature</h2>
+                        <form onSubmit={handleAddLog} className="flex flex-col md:flex-row gap-4 items-end">
+                            <div className="flex-1 w-full">
+                                <label className="block text-sm font-medium text-stone-600 mb-1">Unit / Area</label>
+                                <select value={unit} onChange={(e) => setUnit(e.target.value)} className="w-full p-3 bg-stone-50 border border-stone-300 rounded-lg focus:ring-2 focus:ring-orange-500">
+                                    {units.map(u => <option key={u} value={u}>{u}</option>)}
+                                </select>
+                            </div>
+                            <div className="w-full md:w-48">
+                                <label className="block text-sm font-medium text-stone-600 mb-1">Temp (°C)</label>
+                                <input type="number" step="0.1" value={tempInput} onChange={(e) => setTempInput(e.target.value)} className="w-full p-3 bg-stone-50 border border-stone-300 rounded-lg focus:ring-2 focus:ring-orange-500 text-lg font-mono" placeholder="e.g. 3.5" />
+                            </div>
+                            <button type="submit" className="w-full md:w-auto bg-stone-900 hover:bg-stone-800 text-white font-bold py-3 px-6 rounded-lg flex items-center justify-center gap-2"><Save size={18} /> Save</button>
+                        </form>
+                    </div>
+                    <div className="bg-white rounded-xl shadow-sm border border-stone-200 overflow-hidden">
+                        <div className="bg-stone-50 p-4 border-b border-stone-200 flex justify-between items-center flex-wrap gap-2">
+                            <h3 className="font-bold text-stone-700">Today's Logs <span className="text-xs font-normal text-stone-500 ml-2">{new Date().toLocaleDateString()}</span></h3>
+                            <button onClick={analyzeLogs} disabled={loading} className="text-sm bg-indigo-100 hover:bg-indigo-200 text-indigo-800 px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 transition-colors">{loading ? <Loader className="animate-spin" size={14} /> : <Sparkles size={14} />} {loading ? '...' : 'Analyze Risks'}</button>
+                        </div>
+                        {analysis && <div className="bg-indigo-50 p-4 border-b border-indigo-100 text-indigo-900 text-sm relative"><div className="flex items-start gap-2"><Sparkles className="shrink-0 mt-1 text-indigo-600" size={16} /><div className="whitespace-pre-line">{analysis}</div></div><button onClick={() => setAnalysis(null)} className="absolute top-2 right-2 text-indigo-400 hover:text-indigo-700"><X size={14}/></button></div>}
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-stone-50 text-stone-500 text-sm uppercase"><tr><th className="p-4">Time</th><th className="p-4">Unit</th><th className="p-4">Temp</th><th className="p-4">Staff</th><th className="p-4">Status</th></tr></thead>
+                                <tbody className="divide-y divide-stone-100">{logs.map(log => (<tr key={log.id} className="hover:bg-stone-50"><td className="p-4 font-mono text-stone-600">{log.time}</td><td className="p-4 font-medium text-stone-800">{log.unit}</td><td className="p-4 font-bold text-lg">{log.temp}°C</td><td className="p-4"><span className="bg-stone-200 text-stone-700 px-2 py-1 rounded text-xs font-bold">{log.user}</span></td><td className="p-4">{log.status === 'OK' && <span className="text-green-600 font-bold flex items-center gap-1"><CheckCircle size={16}/> OK</span>}{log.status === 'HIGH' && <span className="text-orange-600 font-bold flex items-center gap-1"><AlertTriangle size={16}/> WARN</span>}{log.status === 'CRITICAL' && <span className="text-red-600 font-bold flex items-center gap-1"><AlertTriangle size={16}/> FAIL</span>}{log.status === 'LOW' && <span className="text-red-600 font-bold flex items-center gap-1"><AlertTriangle size={16}/> LOW</span>}</td></tr>))}</tbody>
+                            </table>
+                        </div>
+                        {logs.length === 0 && <div className="p-8 text-center text-stone-400 italic">No logs recorded today.</div>}
+                    </div>
+                </div>
+            );
+        };
+
+        const CleaningLog = ({ currentUser, showNotify, checkedItems, setCheckedItems }) => {
+            const toggleItem = (id) => {
+                setCheckedItems(prev => {
+                    const newState = { ...prev };
+                    if (newState[id]) delete newState[id];
+                    else { newState[id] = { timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), user: currentUser.initials }; showNotify('Task signed off', 'success'); }
+                    return newState;
+                });
+            };
+            const getProgress = () => Math.round((Object.keys(checkedItems).length / CLEANING_TASKS.length) * 100);
+
+            return (
+                <div className="max-w-4xl mx-auto animate-fade-in">
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-2xl font-bold text-stone-800 font-serif">Daily Cleaning Rota</h2>
+                        <div className="text-right"><div className="text-sm text-stone-500 mb-1">Completion</div><div className="w-48 h-4 bg-stone-200 rounded-full overflow-hidden"><div className="h-full bg-green-500 transition-all duration-500" style={{ width: `${getProgress()}%` }}></div></div></div>
+                    </div>
+                    <div className="grid gap-4">
+                        {CLEANING_TASKS.map(task => {
+                            const isChecked = !!checkedItems[task.id];
+                            return (
+                                <div key={task.id} onClick={() => toggleItem(task.id)} className={`p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${isChecked ? 'bg-green-50 border-green-200 opacity-70' : 'bg-white border-stone-200 hover:border-orange-400 shadow-sm'}`}>
+                                    <div className="flex items-center gap-4">
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${isChecked ? 'bg-green-500 border-green-500 text-white' : 'border-stone-300 text-transparent'}`}><CheckCircle size={18} /></div>
+                                        <div><h4 className={`font-bold text-lg ${isChecked ? 'line-through text-stone-500' : 'text-stone-800'}`}>{task.task}</h4><div className="flex gap-3 text-sm text-stone-500"><span className="bg-stone-100 px-2 py-0.5 rounded">{task.area}</span><span>•</span><span>{task.freq}</span></div></div>
+                                    </div>
+                                    {isChecked && <div className="text-right"><div className="bg-stone-800 text-white text-xs font-bold px-2 py-1 rounded mb-1">{checkedItems[task.id].user}</div><div className="text-xs text-stone-500">{checkedItems[task.id].timestamp}</div></div>}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        };
+
+        const StockCheck = ({ currentUser, showNotify, apiKey, counts, setCounts }) => {
+            const [prepPlan, setPrepPlan] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [orderDraft, setOrderDraft] = useState(null);
+            const [isDrafting, setIsDrafting] = useState(false);
+
+            const handleCountChange = (id, val) => setCounts(prev => ({ ...prev, [id]: val }));
+            const getNeededItems = () => STOCK_ITEMS.map(item => { const current = parseFloat(counts[item.id] || 0); const needed = item.par - current; return needed > 0 ? { ...item, needed } : null; }).filter(Boolean);
+
+            const generatePrepPlan = async () => {
+                const neededItems = getNeededItems().map(i => `${i.name} (Need ${i.needed} ${i.unit})`);
+                if (neededItems.length === 0) return showNotify("Nothing to prep!", "success");
+                setLoading(true);
+                try {
+                    const prompt = `Head Chef for Cowboy's Pizza here. Create efficient "Battle Plan" for single chef. Logical flow. Bullet points.\n\nITEMS TO PREP:\n${neededItems.join(', ')}`;
+                    const result = await callGemini(apiKey, prompt);
+                    setPrepPlan(result);
+                } catch (e) { showNotify("Failed to generate plan", "error"); } finally { setLoading(false); }
+            };
+
+            const generateOrderDraft = async () => {
+                const neededItems = getNeededItems();
+                if (neededItems.length === 0) return showNotify("Stock is full!", "success");
+                setIsDrafting(true);
+                try {
+                    const itemList = neededItems.map(i => `${i.needed}x ${i.unit} of ${i.name}`).join('\n');
+                    const prompt = `Write casual but professional supplier email to 'Best Food Co' from Cowboy's Pizza. User: ${currentUser.name}.\nOrder these items:\n${itemList}\n\nSign off as ${currentUser.name}.`;
+                    const result = await callGemini(apiKey, prompt);
+                    setOrderDraft(result);
+                } catch (e) { showNotify("Failed to draft email", "error"); } finally { setIsDrafting(false); }
+            };
+
+            return (
+                <div className="max-w-5xl mx-auto animate-fade-in">
+                    <div className="flex justify-between items-center mb-6">
+                        <div><h2 className="text-2xl font-bold text-stone-800 font-serif">Stock & Prep List</h2><p className="text-stone-500">Enter current stock to calculate prep needs.</p></div>
+                        <button onClick={() => showNotify('Stock saved', 'success')} className="bg-stone-900 hover:bg-stone-800 text-white px-6 py-2 rounded-lg font-bold">Finalize Count</button>
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-8">
+                        <div className="bg-white rounded-xl shadow-sm border border-stone-200 overflow-hidden">
+                            <div className="bg-stone-100 p-4 border-b border-stone-200 font-bold text-stone-700 flex items-center justify-between"><span>Item Name</span><span>Count</span></div>
+                            <div className="divide-y divide-stone-100">
+                                {STOCK_ITEMS.map(item => (
+                                    <div key={item.id} className="p-4 flex items-center justify-between hover:bg-stone-50">
+                                        <div><div className="font-bold text-stone-800">{item.name}</div><div className="text-xs text-stone-500">Unit: {item.unit} | Par: {item.par}</div></div>
+                                        <input type="number" className="w-20 p-2 border border-stone-300 rounded text-center font-bold text-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="0" value={counts[item.id] || ''} onChange={(e) => handleCountChange(item.id, e.target.value)} />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="flex flex-col gap-4">
+                            <div className="bg-stone-800 rounded-xl shadow-sm border border-stone-700 overflow-hidden text-white">
+                                <div className="bg-stone-900 p-4 border-b border-stone-700 font-bold text-orange-500 flex items-center justify-between">
+                                    <div className="flex items-center gap-2"><ClipboardCheck size={20} /> Prep List</div>
+                                    <div className="flex gap-2">
+                                        <button onClick={generateOrderDraft} disabled={isDrafting} className="text-xs bg-stone-700 hover:bg-stone-600 text-white px-3 py-1.5 rounded-full font-bold flex items-center gap-2 transition-all">{isDrafting ? <Loader className="animate-spin" size={12} /> : <Mail size={12} />} Order</button>
+                                        <button onClick={generatePrepPlan} disabled={loading} className="text-xs bg-orange-600 hover:bg-orange-500 text-white px-3 py-1.5 rounded-full font-bold flex items-center gap-2 transition-all">{loading ? <Loader className="animate-spin" size={12} /> : <Sparkles size={12} />} Plan</button>
+                                    </div>
+                                </div>
+                                <div className="divide-y divide-stone-700">
+                                    {STOCK_ITEMS.map(item => {
+                                        const current = parseFloat(counts[item.id] || 0); const needed = item.par - current; if (needed <= 0) return null;
+                                        return (<div key={item.id} className="p-4 flex items-center justify-between bg-stone-800"><div><div className="font-bold text-lg">{item.name}</div><div className="text-xs text-stone-400">Current: {current} | Par: {item.par}</div></div><div className="text-right"><div className="text-sm text-stone-400 uppercase">Prep</div><div className="text-2xl font-bold text-green-400">{needed} <span className="text-sm font-normal text-stone-400">{item.unit}</span></div></div></div>);
+                                    })}
+                                    {Object.keys(counts).length === 0 && <div className="p-8 text-center text-stone-500 italic">Enter stock counts to see prep requirements.</div>}
+                                </div>
+                            </div>
+                            {prepPlan && !orderDraft && <div className="bg-orange-50 border border-orange-100 rounded-xl p-6 shadow-sm relative animate-slide-up"><h3 className="font-bold text-orange-900 flex items-center gap-2 mb-3"><Sparkles size={18} /> Chef's Battle Plan</h3><div className="text-stone-700 text-sm whitespace-pre-line leading-relaxed">{prepPlan}</div><button onClick={() => setPrepPlan(null)} className="absolute top-2 right-2 text-orange-300 hover:text-orange-600"><X size={18}/></button></div>}
+                            {orderDraft && <div className="bg-blue-50 border border-blue-100 rounded-xl p-6 shadow-sm relative animate-slide-up"><h3 className="font-bold text-blue-900 flex items-center gap-2 mb-3"><Mail size={18} /> Supplier Email Draft</h3><div className="bg-white p-4 rounded border border-blue-100 text-stone-600 text-sm font-mono whitespace-pre-wrap mb-2">{orderDraft}</div><div className="flex justify-end"><button onClick={() => {navigator.clipboard.writeText(orderDraft); showNotify("Copied!", "success")}} className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded font-bold flex items-center gap-2"><Copy size={12} /> Copy Text</button></div><button onClick={() => setOrderDraft(null)} className="absolute top-2 right-2 text-blue-300 hover:text-blue-600"><X size={18}/></button></div>}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const Recipes = ({ showNotify, apiKey }) => {
+            const [recipes, setRecipes] = useStickyState(INITIAL_RECIPES, 'cowboy_recipes');
+            const [search, setSearch] = useState('');
+            const [isGenerating, setIsGenerating] = useState(false);
+            const [prompt, setPrompt] = useState('');
+            const [showPrompt, setShowPrompt] = useState(false);
+
+            const filteredRecipes = recipes.filter(r => r.name.toLowerCase().includes(search.toLowerCase()));
+
+            const handleGenerateRecipe = async () => {
+                if (!prompt) return;
+                setIsGenerating(true);
+                try {
+                    const systemPrompt = `Professional pizza chef for "Cowboy's Pizza". Return JSON ONLY: { "name": "string", "yield": "string", "allergens": ["string"], "ingredients": [{"item": "string", "qty": "string"}], "method": ["string"] }. No markdown.`;
+                    const resultText = await callGemini(apiKey, prompt, systemPrompt);
+                    const cleanJson = resultText.replace(/```json|```/g, '').trim();
+                    const newRecipe = { ...JSON.parse(cleanJson), id: Date.now() };
+                    setRecipes([newRecipe, ...recipes]);
+                    setShowPrompt(false); setPrompt(''); showNotify(`Recipe added!`, 'success');
+                } catch (e) { showNotify("Failed to create recipe.", 'error'); } finally { setIsGenerating(false); }
+            };
+
+            return (
+                <div className="max-w-4xl mx-auto animate-fade-in">
+                    <div className="relative mb-6 flex gap-4">
+                        <div className="relative flex-1"><Search className="absolute left-3 top-3 text-stone-400" size={20} /><input type="text" placeholder="Search recipes..." className="w-full pl-10 p-3 rounded-lg border border-stone-300 focus:ring-2 focus:ring-orange-500 bg-white" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+                        <button onClick={() => setShowPrompt(true)} className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-all"><Sparkles size={18} /><span className="hidden md:block">AI Chef</span></button>
+                    </div>
+                    {showPrompt && <div className="mb-6 bg-orange-50 border border-orange-200 p-4 rounded-xl animate-fade-in"><h3 className="font-bold text-orange-900 mb-2">New Dish Idea?</h3><div className="flex gap-2"><input type="text" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="e.g. Spicy Nduja Dip..." className="flex-1 p-2 border border-orange-200 rounded focus:outline-none focus:border-orange-500 bg-white" /><button onClick={handleGenerateRecipe} disabled={isGenerating} className="bg-orange-600 text-white px-4 py-2 rounded font-bold flex items-center gap-2">{isGenerating ? <Loader className="animate-spin" size={16} /> : 'Generate'}</button><button onClick={() => setShowPrompt(false)} className="p-2 text-orange-400 hover:text-orange-700"><X size={20}/></button></div></div>}
+                    <div className="grid gap-6">
+                        {filteredRecipes.map(recipe => (
+                            <div key={recipe.id} className="bg-white rounded-xl shadow-sm border border-stone-200 overflow-hidden">
+                                <div className="p-6 border-b border-stone-100 bg-stone-50 flex justify-between items-start"><div><h3 className="text-2xl font-bold text-stone-800 font-serif">{recipe.name}</h3><div className="text-sm text-stone-500 mt-1">Yield: {recipe.yield}</div></div><div className="flex gap-2 flex-wrap justify-end">{recipe.allergens?.map(a => <span key={a} className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-xs font-bold border border-orange-200">{a}</span>)}</div></div>
+                                <div className="p-6 grid md:grid-cols-3 gap-8"><div className="col-span-1 bg-stone-50 p-4 rounded-lg border border-stone-100"><h4 className="font-bold text-stone-700 mb-3 uppercase text-sm flex items-center gap-2"><Box size={14}/> Ingredients</h4><ul className="space-y-2 text-sm">{recipe.ingredients?.map((ing, idx) => (<li key={idx} className="flex justify-between border-b border-stone-200 pb-1 last:border-0"><span>{ing.item}</span><span className="font-bold">{ing.qty}</span></li>))}</ul></div><div className="col-span-2"><h4 className="font-bold text-stone-700 mb-3 uppercase text-sm flex items-center gap-2"><Utensils size={14}/> Method</h4><ol className="space-y-3 list-decimal pl-4 text-stone-700">{recipe.method?.map((step, idx) => <li key={idx} className="pl-2">{step}</li>)}</ol></div></div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        const Dashboard = ({ currentUser, setActiveTab, apiKey }) => {
+            const [notes, setNotes] = useState('');
+            const [handoffReport, setHandoffReport] = useState('');
+            const [generatingReport, setGeneratingReport] = useState(false);
+
+            const generateHandoff = async () => {
+                if (!notes) return;
+                setGeneratingReport(true);
+                try {
+                    const prompt = `Head Chef at Cowboy's Pizza here. User: ${currentUser.name}. Convert these rough notes into structured Shift Handover Report (Emojis as headers: 🤠 Shift Summary, ⚠️ Issues, 📝 Stock). Tone: Professional western flair.\n\nNOTES:\n${notes}`;
+                    const result = await callGemini(apiKey, prompt);
+                    setHandoffReport(result);
+                } catch (e) { console.error(e); } finally { setGeneratingReport(false); }
+            };
+
+            return (
+                <div className="max-w-5xl mx-auto animate-fade-in">
+                    <div className="mb-8 flex items-center gap-4">
+                        <img src="logo.png" alt="Cowboy's Pizza" className="w-16 h-16 rounded-full border-4 border-white shadow-md object-cover bg-stone-800" onError={(e) => e.target.style.display='none'} />
+                        <div><h1 className="text-4xl font-bold text-stone-900 font-serif">Howdy, {currentUser.name}.</h1><p className="text-stone-500">Ready for tonight's rodeo?</p></div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                        <div className="bg-white p-4 rounded-xl border border-stone-200 shadow-sm flex items-center justify-between cursor-pointer hover:border-orange-400 transition-all" onClick={() => setActiveTab('cleaning')}><div><div className="text-stone-500 text-xs uppercase font-bold">Cleaning</div><div className="text-2xl font-bold text-stone-800">Tasks</div></div><div className="bg-orange-100 p-2 rounded-lg text-orange-600"><ClipboardCheck /></div></div>
+                        <div className="bg-white p-4 rounded-xl border border-stone-200 shadow-sm flex items-center justify-between cursor-pointer hover:border-orange-400 transition-all" onClick={() => setActiveTab('haccp')}><div><div className="text-stone-500 text-xs uppercase font-bold">HACCP</div><div className="text-2xl font-bold text-red-600">Logs</div></div><div className="bg-red-100 p-2 rounded-lg text-red-600"><Thermometer /></div></div>
+                        <div className="bg-white p-4 rounded-xl border border-stone-200 shadow-sm flex items-center justify-between cursor-pointer hover:border-orange-400 transition-all" onClick={() => setActiveTab('stock')}><div><div className="text-stone-500 text-xs uppercase font-bold">Stock</div><div className="text-2xl font-bold text-stone-800">Count</div></div><div className="bg-blue-100 p-2 rounded-lg text-blue-600"><Box /></div></div>
+                        <div className="bg-stone-800 text-white p-4 rounded-xl border border-stone-900 shadow-sm flex items-center justify-between"><div><div className="text-stone-400 text-xs uppercase font-bold">Status</div><div className="text-xl font-bold text-orange-400">Service Ready</div></div><div className="bg-stone-700 p-2 rounded-lg"><Clock /></div></div>
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-6 mb-6">
+                        <div className="bg-white p-6 rounded-xl border border-stone-200 shadow-sm md:col-span-2">
+                            <h3 className="font-bold text-lg text-stone-800 mb-4 font-serif flex items-center gap-2"><FileText className="text-orange-600" /> End of Shift Handoff</h3>
+                            {!handoffReport ? (
+                                <div className="flex flex-col gap-3"><textarea className="w-full p-4 border border-stone-200 rounded-lg bg-stone-50 focus:outline-none focus:ring-2 focus:ring-orange-500" rows="3" placeholder="Rough notes... e.g. 'Dishwasher broke, ran out of pep at 9pm...'" value={notes} onChange={(e) => setNotes(e.target.value)}></textarea><div className="flex justify-end"><button onClick={generateHandoff} disabled={generatingReport || !notes} className="bg-stone-900 hover:bg-stone-800 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all disabled:opacity-50">{generatingReport ? <Loader className="animate-spin" size={16}/> : <Sparkles size={16} />} Generate Report</button></div></div>
+                            ) : (
+                                <div className="bg-stone-50 border border-stone-200 rounded-lg p-6 relative animate-fade-in"><div className="flex items-center justify-between mb-4 border-b border-stone-200 pb-2"><h4 className="font-bold text-stone-800 uppercase text-xs tracking-widest">Official Shift Report</h4><span className="text-xs text-stone-500">{new Date().toLocaleDateString()}</span></div><div className="whitespace-pre-line text-stone-700 leading-relaxed font-medium">{handoffReport}</div><button onClick={() => setHandoffReport('')} className="absolute top-4 right-4 text-stone-400 hover:text-stone-800">Create New</button></div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [currentUser, setCurrentUser] = useState(STAFF_MEMBERS[0]);
+            const [notification, setNotification] = useState(null);
+            
+            // Persistent State
+            const [apiKey, setApiKey] = useStickyState('', 'cowboy_api_key');
+            const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
+            const [logs, setLogs] = useStickyState([], 'cowboy_logs');
+            const [checkedItems, setCheckedItems] = useStickyState({}, 'cowboy_cleaning');
+            const [counts, setCounts] = useStickyState({}, 'cowboy_stock');
+
+            useEffect(() => { if (!apiKey) setIsKeyModalOpen(true); }, [apiKey]);
+
+            const showNotify = (message, type = 'success') => {
+                setNotification({ message, type });
+                setTimeout(() => setNotification(null), 3000);
+            };
+
+            const handleReset = () => {
+                if(confirm("Are you sure you want to wipe all data?")) {
+                    localStorage.clear();
+                    window.location.reload();
+                }
+            }
+
+            return (
+                <div className="flex h-screen bg-stone-100 font-sans text-stone-900">
+                    <APIKeyModal isOpen={isKeyModalOpen} onSave={(key) => { setApiKey(key); setIsKeyModalOpen(false); }} />
+                    <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} currentUser={currentUser} setCurrentUser={setCurrentUser} onReset={handleReset} />
+                    <main className="flex-1 ml-24 md:ml-64 p-4 md:p-8 overflow-y-auto">
+                        <Notification message={notification?.message} type={notification?.type} onClose={() => setNotification(null)} />
+                        {activeTab === 'dashboard' && <Dashboard currentUser={currentUser} setActiveTab={setActiveTab} apiKey={apiKey} />}
+                        {activeTab === 'haccp' && <HACCPLog currentUser={currentUser} showNotify={showNotify} apiKey={apiKey} logs={logs} setLogs={setLogs} />}
+                        {activeTab === 'cleaning' && <CleaningLog currentUser={currentUser} showNotify={showNotify} checkedItems={checkedItems} setCheckedItems={setCheckedItems} />}
+                        {activeTab === 'stock' && <StockCheck currentUser={currentUser} showNotify={showNotify} apiKey={apiKey} counts={counts} setCounts={setCounts} />}
+                        {activeTab === 'recipes' && <Recipes showNotify={showNotify} apiKey={apiKey} />}
+                    </main>
+                </div>
+            );
+        };
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
